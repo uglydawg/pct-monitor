@@ -1,4 +1,6 @@
-# Parler API Evidence Monitor
+# PCT API Evidence Monitor
+
+**Case No. 494-07423-2025 — Closed Circuit, Inc. and SOC, LLC v. Parler Cloud Technologies, LLC**
 
 Single-file Python script. No dependencies beyond the standard library.
 
