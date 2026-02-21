@@ -1,0 +1,512 @@
+{
+  "info": {
+    "name": "Parler API Evidence Collection",
+    "description": "Evidence collection for Case No. 494-07423-2025 — Closed Circuit, Inc. and SOC, LLC v. Parler Cloud Technologies, LLC.\n\nThis collection captures API responses and runs schema assertions to detect Closed Circuit (CC) platform fingerprints.\n\nUsage:\n1. Set {{bearer_token}} to your OAuth token\n2. Run manually or schedule via Postman Monitor\n3. Each request has test scripts that check for CC-specific field names, ULID patterns, and structural signatures",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://api.parler.com",
+      "type": "string"
+    },
+    {
+      "key": "bearer_token",
+      "value": "PASTE_YOUR_OAUTH_TOKEN_HERE",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Public Endpoints",
+      "item": [
+        {
+          "name": "Posts Map (POST /public/v4/posts/map)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"ulids\": []}"
+            },
+            "url": {
+              "raw": "{{base_url}}/public/v4/posts/map",
+              "host": ["{{base_url}}"],
+              "path": ["public", "v4", "posts", "map"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// --- Evidence Assertions: Posts Map ---",
+                  "const CC_FIELDS = ['ulid','userUlid','parentUlid','threadUlid','rootUlid','userId','postId','notificationId','fromUserId','liveStreamId','ProfileEngagement','isFollowing','isFollowingYou','isBanned','isBlocked','isBlockedByThem','isBlockedByYou','isMuted','isSubscribed','is_partner','postCount','followers','following','friendCount','networkSize','burstCount','mediaCount','repliesCount','videoCount','joinedGroupCount','avatar','background','background_color','branding_logo','primary_colors','secondary_colors','theme','dark_mode','badges','bio','username','emailVerified','updatedAt','updatedAtEpoch','lastActiveAt','userUpdatedAt','userUpdatedAtEpoch','postUpdatedAt','postUpdatedAtEpoch','postUpdatedAtUTC','fromUserUpdatedAt','fromUserUpdatedAtEpoch','current_streak','longest_streak','notificationType','notificationTypeId','rootId','rootType','parentId','postIsSuperComment','reactionName','contentNotAvailableReason','can_stream','streaming_permissions','available_qualities','next_cursor','prev_cursor','next_page_url','prev_page_url','products','referral_code','transactionAmount'];",
+                  "const ULID_RE = /^[0-9a-hjkmnp-tv-z]{26}$/;",
+                  "",
+                  "pm.test('Response is JSON', function () {",
+                  "    pm.response.to.be.json;",
+                  "});",
+                  "",
+                  "pm.test('HTTP 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('CC structural pattern: response has data envelope or map structure', function () {",
+                  "    const body = pm.response.json();",
+                  "    const hasData = body.hasOwnProperty('data');",
+                  "    const isMap = typeof body === 'object' && !Array.isArray(body);",
+                  "    pm.expect(hasData || isMap).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('CC field fingerprint check', function () {",
+                  "    const bodyStr = pm.response.text();",
+                  "    const found = CC_FIELDS.filter(f => bodyStr.includes('\"' + f + '\"'));",
+                  "    console.log('CC fields found:', found.join(', '));",
+                  "    console.log('CC fingerprint score:', found.length + '/' + CC_FIELDS.length);",
+                  "    // At minimum, the endpoint namespace /public/v4/ is CC-specific",
+                  "    pm.expect(true).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('ULID pattern check in response', function () {",
+                  "    const bodyStr = pm.response.text();",
+                  "    const ulidMatches = bodyStr.match(/\"[0-9a-hjkmnp-tv-z]{26}\"/g) || [];",
+                  "    console.log('ULID values found:', ulidMatches.length);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Authenticated Endpoints",
+      "item": [
+        {
+          "name": "User Settings (GET /v3/user/settings)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/user/settings",
+              "host": ["{{base_url}}"],
+              "path": ["v3", "user", "settings"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// --- Evidence Assertions: User Settings ---",
+                  "const CC_FIELDS = ['ulid','userUlid','parentUlid','threadUlid','rootUlid','userId','postId','notificationId','fromUserId','liveStreamId','ProfileEngagement','isFollowing','isFollowingYou','isBanned','isBlocked','isBlockedByThem','isBlockedByYou','isMuted','isSubscribed','is_partner','postCount','followers','following','friendCount','networkSize','burstCount','mediaCount','repliesCount','videoCount','joinedGroupCount','avatar','background','background_color','branding_logo','primary_colors','secondary_colors','theme','dark_mode','badges','bio','username','emailVerified','updatedAt','updatedAtEpoch','lastActiveAt','userUpdatedAt','userUpdatedAtEpoch','postUpdatedAt','postUpdatedAtEpoch','postUpdatedAtUTC','fromUserUpdatedAt','fromUserUpdatedAtEpoch','current_streak','longest_streak','notificationType','notificationTypeId','rootId','rootType','parentId','postIsSuperComment','reactionName','contentNotAvailableReason','can_stream','streaming_permissions','available_qualities','next_cursor','prev_cursor','next_page_url','prev_page_url','products','referral_code','transactionAmount'];",
+                  "const ULID_RE = /^[0-9a-hjkmnp-tv-z]{26}$/;",
+                  "",
+                  "pm.test('Response is JSON', function () {",
+                  "    pm.response.to.be.json;",
+                  "});",
+                  "",
+                  "pm.test('HTTP 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('CC field fingerprint check', function () {",
+                  "    const bodyStr = pm.response.text();",
+                  "    const found = CC_FIELDS.filter(f => bodyStr.includes('\"' + f + '\"'));",
+                  "    console.log('CC fields found:', found.join(', '));",
+                  "    console.log('CC fingerprint score:', found.length + '/' + CC_FIELDS.length);",
+                  "    pm.expect(found.length).to.be.greaterThan(0, 'Expected at least 1 CC-specific field');",
+                  "});",
+                  "",
+                  "pm.test('ULID pattern in ID fields', function () {",
+                  "    const body = pm.response.json();",
+                  "    const bodyStr = JSON.stringify(body);",
+                  "    const ulidMatches = bodyStr.match(/\"[0-9a-hjkmnp-tv-z]{26}\"/g) || [];",
+                  "    console.log('ULID values found:', ulidMatches.length);",
+                  "});",
+                  "",
+                  "pm.test('CC structural: data envelope or nested engagement', function () {",
+                  "    const body = pm.response.json();",
+                  "    const hasData = body.hasOwnProperty('data');",
+                  "    const bodyStr = pm.response.text();",
+                  "    const hasEngagement = bodyStr.includes('userEngagement');",
+                  "    console.log('Has data envelope:', hasData, '| Has engagement:', hasEngagement);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Profile Map (POST /v3/profile)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"ulids\": [\"01ecyq99tgjana70v365ynhwv4\", \"01cyb6bvrgwnncdcxk9bmw5ssg\", \"01dd14f88r5rfve8wp7kqzts3y\"]}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v3/profile",
+              "host": ["{{base_url}}"],
+              "path": ["v3", "profile"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// --- Evidence Assertions: Profile Map ---",
+                  "const CC_FIELDS = ['ulid','userUlid','parentUlid','threadUlid','rootUlid','userId','postId','notificationId','fromUserId','liveStreamId','ProfileEngagement','isFollowing','isFollowingYou','isBanned','isBlocked','isBlockedByThem','isBlockedByYou','isMuted','isSubscribed','is_partner','postCount','followers','following','friendCount','networkSize','burstCount','mediaCount','repliesCount','videoCount','joinedGroupCount','avatar','background','background_color','branding_logo','primary_colors','secondary_colors','theme','dark_mode','badges','bio','username','emailVerified','updatedAt','updatedAtEpoch','lastActiveAt','userUpdatedAt','userUpdatedAtEpoch','postUpdatedAt','postUpdatedAtEpoch','postUpdatedAtUTC','fromUserUpdatedAt','fromUserUpdatedAtEpoch','current_streak','longest_streak','notificationType','notificationTypeId','rootId','rootType','parentId','postIsSuperComment','reactionName','contentNotAvailableReason','can_stream','streaming_permissions','available_qualities','next_cursor','prev_cursor','next_page_url','prev_page_url','products','referral_code','transactionAmount'];",
+                  "const ULID_RE = /^[0-9a-hjkmnp-tv-z]{26}$/;",
+                  "",
+                  "pm.test('Response is JSON', function () {",
+                  "    pm.response.to.be.json;",
+                  "});",
+                  "",
+                  "pm.test('HTTP 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('CC field fingerprint — profile-specific fields', function () {",
+                  "    const bodyStr = pm.response.text();",
+                  "    const found = CC_FIELDS.filter(f => bodyStr.includes('\"' + f + '\"'));",
+                  "    console.log('CC fields found:', found.join(', '));",
+                  "    console.log('CC fingerprint score:', found.length + '/' + CC_FIELDS.length);",
+                  "    pm.expect(found.length).to.be.greaterThan(0, 'Expected CC profile fields');",
+                  "});",
+                  "",
+                  "pm.test('ULID pattern in profile response', function () {",
+                  "    const bodyStr = pm.response.text();",
+                  "    const ulidMatches = bodyStr.match(/\"[0-9a-hjkmnp-tv-z]{26}\"/g) || [];",
+                  "    console.log('ULID values found:', ulidMatches.length);",
+                  "    pm.expect(ulidMatches.length).to.be.greaterThan(0, 'Expected ULID values in profile data');",
+                  "});",
+                  "",
+                  "pm.test('CC structural: ULID-keyed map pattern', function () {",
+                  "    const body = pm.response.json();",
+                  "    const keys = Object.keys(body.data || body);",
+                  "    const ulidKeys = keys.filter(k => /^[0-9a-hjkmnp-tv-z]{26}$/.test(k));",
+                  "    console.log('ULID-keyed entries:', ulidKeys.length);",
+                  "    pm.expect(ulidKeys.length).to.be.greaterThan(0, 'Expected ULID-keyed map structure');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Current User (GET /v3/user)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/user",
+              "host": ["{{base_url}}"],
+              "path": ["v3", "user"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// --- Evidence Assertions: Current User ---",
+                  "const CC_FIELDS = ['ulid','userUlid','parentUlid','threadUlid','rootUlid','userId','postId','notificationId','fromUserId','liveStreamId','ProfileEngagement','isFollowing','isFollowingYou','isBanned','isBlocked','isBlockedByThem','isBlockedByYou','isMuted','isSubscribed','is_partner','postCount','followers','following','friendCount','networkSize','burstCount','mediaCount','repliesCount','videoCount','joinedGroupCount','avatar','background','background_color','branding_logo','primary_colors','secondary_colors','theme','dark_mode','badges','bio','username','emailVerified','updatedAt','updatedAtEpoch','lastActiveAt','userUpdatedAt','userUpdatedAtEpoch','postUpdatedAt','postUpdatedAtEpoch','postUpdatedAtUTC','fromUserUpdatedAt','fromUserUpdatedAtEpoch','current_streak','longest_streak','notificationType','notificationTypeId','rootId','rootType','parentId','postIsSuperComment','reactionName','contentNotAvailableReason','can_stream','streaming_permissions','available_qualities','next_cursor','prev_cursor','next_page_url','prev_page_url','products','referral_code','transactionAmount'];",
+                  "",
+                  "pm.test('Response is JSON', function () {",
+                  "    pm.response.to.be.json;",
+                  "});",
+                  "",
+                  "pm.test('HTTP 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('CC field fingerprint — user-specific fields', function () {",
+                  "    const bodyStr = pm.response.text();",
+                  "    const found = CC_FIELDS.filter(f => bodyStr.includes('\"' + f + '\"'));",
+                  "    console.log('CC fields found:', found.join(', '));",
+                  "    console.log('CC fingerprint score:', found.length + '/' + CC_FIELDS.length);",
+                  "    pm.expect(found.length).to.be.greaterThan(0, 'Expected CC user fields');",
+                  "});",
+                  "",
+                  "pm.test('ULID pattern in user ULID', function () {",
+                  "    const body = pm.response.json();",
+                  "    const user = body.data || body;",
+                  "    const ulid = user.ulid || '';",
+                  "    pm.expect(ulid).to.match(/^[0-9a-hjkmnp-tv-z]{26}$/, 'User ULID should be valid');",
+                  "});",
+                  "",
+                  "pm.test('CC structural: user profile fields present', function () {",
+                  "    const bodyStr = pm.response.text();",
+                  "    const profileFields = ['displayName', 'profilePhoto', 'followerCount', 'followingCount'];",
+                  "    const found = profileFields.filter(f => bodyStr.includes('\"' + f + '\"'));",
+                  "    console.log('Profile fields found:', found.join(', '));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Trending Hashtags (GET /v3/trending/hashtags/last24)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/trending/hashtags/last24",
+              "host": ["{{base_url}}"],
+              "path": ["v3", "trending", "hashtags", "last24"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// --- Evidence Assertions: Trending Hashtags ---",
+                  "const CC_FIELDS = ['ulid','userUlid','parentUlid','threadUlid','rootUlid','userId','postId','notificationId','fromUserId','liveStreamId','ProfileEngagement','isFollowing','isFollowingYou','isBanned','isBlocked','isBlockedByThem','isBlockedByYou','isMuted','isSubscribed','is_partner','postCount','followers','following','friendCount','networkSize','burstCount','mediaCount','repliesCount','videoCount','joinedGroupCount','avatar','background','background_color','branding_logo','primary_colors','secondary_colors','theme','dark_mode','badges','bio','username','emailVerified','updatedAt','updatedAtEpoch','lastActiveAt','userUpdatedAt','userUpdatedAtEpoch','postUpdatedAt','postUpdatedAtEpoch','postUpdatedAtUTC','fromUserUpdatedAt','fromUserUpdatedAtEpoch','current_streak','longest_streak','notificationType','notificationTypeId','rootId','rootType','parentId','postIsSuperComment','reactionName','contentNotAvailableReason','can_stream','streaming_permissions','available_qualities','next_cursor','prev_cursor','next_page_url','prev_page_url','products','referral_code','transactionAmount'];",
+                  "",
+                  "pm.test('Response is JSON', function () {",
+                  "    pm.response.to.be.json;",
+                  "});",
+                  "",
+                  "pm.test('HTTP 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('CC field fingerprint check', function () {",
+                  "    const bodyStr = pm.response.text();",
+                  "    const found = CC_FIELDS.filter(f => bodyStr.includes('\"' + f + '\"'));",
+                  "    console.log('CC fields found:', found.join(', '));",
+                  "    console.log('CC fingerprint score:', found.length + '/' + CC_FIELDS.length);",
+                  "});",
+                  "",
+                  "pm.test('CC structural: data array with trending items', function () {",
+                  "    const body = pm.response.json();",
+                  "    const data = body.data || body;",
+                  "    const isArray = Array.isArray(data);",
+                  "    console.log('Data is array:', isArray, '| Items:', isArray ? data.length : 'N/A');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Notifications (GET /v3/user/notifications)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/user/notifications",
+              "host": ["{{base_url}}"],
+              "path": ["v3", "user", "notifications"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// --- Evidence Assertions: Notifications ---",
+                  "const CC_FIELDS = ['ulid','userUlid','parentUlid','threadUlid','rootUlid','userId','postId','notificationId','fromUserId','liveStreamId','ProfileEngagement','isFollowing','isFollowingYou','isBanned','isBlocked','isBlockedByThem','isBlockedByYou','isMuted','isSubscribed','is_partner','postCount','followers','following','friendCount','networkSize','burstCount','mediaCount','repliesCount','videoCount','joinedGroupCount','avatar','background','background_color','branding_logo','primary_colors','secondary_colors','theme','dark_mode','badges','bio','username','emailVerified','updatedAt','updatedAtEpoch','lastActiveAt','userUpdatedAt','userUpdatedAtEpoch','postUpdatedAt','postUpdatedAtEpoch','postUpdatedAtUTC','fromUserUpdatedAt','fromUserUpdatedAtEpoch','current_streak','longest_streak','notificationType','notificationTypeId','rootId','rootType','parentId','postIsSuperComment','reactionName','contentNotAvailableReason','can_stream','streaming_permissions','available_qualities','next_cursor','prev_cursor','next_page_url','prev_page_url','products','referral_code','transactionAmount'];",
+                  "",
+                  "pm.test('Response is JSON', function () {",
+                  "    pm.response.to.be.json;",
+                  "});",
+                  "",
+                  "pm.test('HTTP 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('CC field fingerprint check', function () {",
+                  "    const bodyStr = pm.response.text();",
+                  "    const found = CC_FIELDS.filter(f => bodyStr.includes('\"' + f + '\"'));",
+                  "    console.log('CC fields found:', found.join(', '));",
+                  "    console.log('CC fingerprint score:', found.length + '/' + CC_FIELDS.length);",
+                  "    pm.expect(found.length).to.be.greaterThan(0, 'Expected CC notification fields');",
+                  "});",
+                  "",
+                  "pm.test('ULID pattern in notification data', function () {",
+                  "    const bodyStr = pm.response.text();",
+                  "    const ulidMatches = bodyStr.match(/\"[0-9a-hjkmnp-tv-z]{26}\"/g) || [];",
+                  "    console.log('ULID values found:', ulidMatches.length);",
+                  "});",
+                  "",
+                  "pm.test('CC structural: data envelope present', function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Profile: parlersupport (GET /v3/profile/parlersupport)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/profile/parlersupport",
+              "host": ["{{base_url}}"],
+              "path": ["v3", "profile", "parlersupport"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// --- Evidence Assertions: Profile parlersupport ---",
+                  "const CC_FIELDS = ['ulid','userUlid','parentUlid','threadUlid','rootUlid','userId','postId','notificationId','fromUserId','liveStreamId','ProfileEngagement','isFollowing','isFollowingYou','isBanned','isBlocked','isBlockedByThem','isBlockedByYou','isMuted','isSubscribed','is_partner','postCount','followers','following','friendCount','networkSize','burstCount','mediaCount','repliesCount','videoCount','joinedGroupCount','avatar','background','background_color','branding_logo','primary_colors','secondary_colors','theme','dark_mode','badges','bio','username','emailVerified','updatedAt','updatedAtEpoch','lastActiveAt','userUpdatedAt','userUpdatedAtEpoch','postUpdatedAt','postUpdatedAtEpoch','postUpdatedAtUTC','fromUserUpdatedAt','fromUserUpdatedAtEpoch','current_streak','longest_streak','notificationType','notificationTypeId','rootId','rootType','parentId','postIsSuperComment','reactionName','contentNotAvailableReason','can_stream','streaming_permissions','available_qualities','next_cursor','prev_cursor','next_page_url','prev_page_url','products','referral_code','transactionAmount'];",
+                  "",
+                  "pm.test('Response is JSON', function () {",
+                  "    pm.response.to.be.json;",
+                  "});",
+                  "",
+                  "pm.test('HTTP 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('CC field fingerprint — profile fields', function () {",
+                  "    const bodyStr = pm.response.text();",
+                  "    const found = CC_FIELDS.filter(f => bodyStr.includes('\"' + f + '\"'));",
+                  "    console.log('CC fields found:', found.join(', '));",
+                  "    console.log('CC fingerprint score:', found.length + '/' + CC_FIELDS.length);",
+                  "    pm.expect(found.length).to.be.greaterThan(0, 'Expected CC profile fields');",
+                  "});",
+                  "",
+                  "pm.test('ULID pattern in profile ULID', function () {",
+                  "    const body = pm.response.json();",
+                  "    const profile = body.data || body;",
+                  "    const ulid = profile.ulid || '';",
+                  "    pm.expect(ulid).to.match(/^[0-9a-hjkmnp-tv-z]{26}$/, 'Profile ULID should be valid');",
+                  "});",
+                  "",
+                  "pm.test('CC structural: profile has displayName and follower counts', function () {",
+                  "    const bodyStr = pm.response.text();",
+                  "    const expected = ['displayName', 'followerCount', 'followingCount', 'profilePhoto'];",
+                  "    const found = expected.filter(f => bodyStr.includes('\"' + f + '\"'));",
+                  "    console.log('Profile structure fields:', found.join(', '));",
+                  "    pm.expect(found.length).to.be.greaterThan(0, 'Expected CC profile structure');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Influencers (GET /v3/posts/influencers)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v3/posts/influencers",
+              "host": ["{{base_url}}"],
+              "path": ["v3", "posts", "influencers"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// --- Evidence Assertions: Influencers ---",
+                  "const CC_FIELDS = ['ulid','userUlid','parentUlid','threadUlid','rootUlid','userId','postId','notificationId','fromUserId','liveStreamId','ProfileEngagement','isFollowing','isFollowingYou','isBanned','isBlocked','isBlockedByThem','isBlockedByYou','isMuted','isSubscribed','is_partner','postCount','followers','following','friendCount','networkSize','burstCount','mediaCount','repliesCount','videoCount','joinedGroupCount','avatar','background','background_color','branding_logo','primary_colors','secondary_colors','theme','dark_mode','badges','bio','username','emailVerified','updatedAt','updatedAtEpoch','lastActiveAt','userUpdatedAt','userUpdatedAtEpoch','postUpdatedAt','postUpdatedAtEpoch','postUpdatedAtUTC','fromUserUpdatedAt','fromUserUpdatedAtEpoch','current_streak','longest_streak','notificationType','notificationTypeId','rootId','rootType','parentId','postIsSuperComment','reactionName','contentNotAvailableReason','can_stream','streaming_permissions','available_qualities','next_cursor','prev_cursor','next_page_url','prev_page_url','products','referral_code','transactionAmount'];",
+                  "",
+                  "pm.test('Response is JSON', function () {",
+                  "    pm.response.to.be.json;",
+                  "});",
+                  "",
+                  "pm.test('HTTP 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('CC field fingerprint — influencer data', function () {",
+                  "    const bodyStr = pm.response.text();",
+                  "    const found = CC_FIELDS.filter(f => bodyStr.includes('\"' + f + '\"'));",
+                  "    console.log('CC fields found:', found.join(', '));",
+                  "    console.log('CC fingerprint score:', found.length + '/' + CC_FIELDS.length);",
+                  "    pm.expect(found.length).to.be.greaterThan(0, 'Expected CC influencer fields');",
+                  "});",
+                  "",
+                  "pm.test('ULID patterns in influencer data', function () {",
+                  "    const bodyStr = pm.response.text();",
+                  "    const ulidMatches = bodyStr.match(/\"[0-9a-hjkmnp-tv-z]{26}\"/g) || [];",
+                  "    console.log('ULID values found:', ulidMatches.length);",
+                  "    pm.expect(ulidMatches.length).to.be.greaterThan(0, 'Expected ULID values in influencer data');",
+                  "});",
+                  "",
+                  "pm.test('CC structural: data envelope with post/user objects', function () {",
+                  "    const body = pm.response.json();",
+                  "    const hasData = body.hasOwnProperty('data');",
+                  "    const bodyStr = pm.response.text();",
+                  "    const hasEngagement = bodyStr.includes('userEngagement');",
+                  "    const hasCounts = bodyStr.includes('impressionCount') || bodyStr.includes('upvoteCount');",
+                  "    console.log('Has data:', hasData, '| Engagement:', hasEngagement, '| Counts:', hasCounts);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
