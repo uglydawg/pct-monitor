@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Parler API Evidence Monitor
+PCT API Evidence Monitor
 Captures and logs API requests/responses to SQLite for legal evidence.
 Supports both public and authenticated (OAuth) endpoints.
+Blockchain timestamps via OpenTimestamps (Bitcoin) — no API key needed.
 
 Run: python3 monitor.py
 Then open: http://localhost:8080
@@ -27,16 +28,17 @@ import re
 import os
 from pathlib import Path
 
-DB_FILE = "evidence.db"
-PORT = 8080
-CREDENTIALS_FILE = "credentials.json"
-ORIGINSTAMP_API_KEY = os.environ.get("ORIGINSTAMP_API_KEY", "")
+DATA_DIR = Path(os.environ.get("DATA_DIR", "."))
+DB_FILE = str(DATA_DIR / "evidence.db")
+PORT = int(os.environ.get("PORT", "8080"))
+CREDENTIALS_FILE = str(DATA_DIR / "credentials.json")
+OTS_CALENDAR_URL = "https://a.pool.opentimestamps.org/digest"
 
 # --- CC-Specific Field Names (known Closed Circuit platform fields) ---
 
 CC_KNOWN_FIELDS = {
     # ULID identifiers (Crockford Base32 — CC signature)
-    "ulid", "userUlid", "parentUlid", "threadUlid", "rootUlid",
+    "ulid", "parentUlid",
     "userId", "postId", "notificationId", "fromUserId", "liveStreamId",
     # Engagement / social graph
     "ProfileEngagement", "isFollowing", "isFollowingYou",
@@ -82,10 +84,25 @@ _credentials = None
 
 
 def load_credentials():
-    """Load OAuth credentials from credentials.json.
-    Supports both snake_case (access_token) and camelCase (accessToken) keys.
+    """Load OAuth credentials from environment variables or credentials.json.
+    Env vars: PARLER_ACCESS_TOKEN / PARLER_REFRESH_TOKEN (preferred on Fly.io).
+    File fallback: credentials.json with snake_case or camelCase keys.
     """
     global _credentials
+    env_access = os.environ.get("PARLER_ACCESS_TOKEN", "")
+    env_refresh = os.environ.get("PARLER_REFRESH_TOKEN", "")
+    if env_access:
+        _credentials = {
+            "access_token": env_access,
+            "refresh_token": env_refresh,
+            "token_url": "https://api.parler.com/oauth/token",
+            "client_id": "",
+            "client_secret": "",
+            "_raw": {"accessToken": env_access, "refreshToken": env_refresh},
+        }
+        print(f"  [AUTH] Loaded credentials from env vars (token ends ...{env_access[-8:]})")
+        return
+
     creds_path = Path(CREDENTIALS_FILE)
     if not creds_path.exists():
         print(f"  [AUTH] No {CREDENTIALS_FILE} found — authenticated endpoints will be skipped")
@@ -108,7 +125,9 @@ def load_credentials():
 
 
 def save_credentials():
-    """Persist updated credentials back to credentials.json in original format."""
+    """Persist updated credentials back to credentials.json in original format.
+    Always writes to DATA_DIR so refreshed tokens survive container restarts.
+    """
     if _credentials is None:
         return
     raw = _credentials.get("_raw", {})
@@ -119,6 +138,7 @@ def save_credentials():
     else:
         raw["access_token"] = _credentials["access_token"]
         raw["refresh_token"] = _credentials["refresh_token"]
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     with open(CREDENTIALS_FILE, "w") as f:
         json.dump(raw, f, indent=2)
 
@@ -359,55 +379,56 @@ def extract_schema(obj, prefix=""):
     }
 
 
-# --- Blockchain Timestamping (OriginStamp) ---
+# --- Blockchain Timestamping (OpenTimestamps) ---
+
+OTS_DIR = DATA_DIR / "ots_proofs"
 
 
-def submit_to_originstamp(hash_value, comment=""):
-    """Submit a SHA-256 hash to OriginStamp for blockchain timestamping.
-    Returns the API response dict, or None if no API key or on error.
+def submit_to_opentimestamps(hash_value):
+    """Submit a SHA-256 hash to OpenTimestamps for Bitcoin blockchain timestamping.
+    Returns the raw .ots proof bytes, or None on error.
+    No API key needed — free public service.
     """
-    if not ORIGINSTAMP_API_KEY:
-        return None
-
-    body = json.dumps({
-        "comment": comment[:256],
-        "hash": hash_value,
-        "hash_string": True,
-    }).encode()
+    # OpenTimestamps expects the raw 32-byte SHA-256 digest
+    hash_bytes = bytes.fromhex(hash_value)
 
     req = urllib.request.Request(
-        "https://api.originstamp.com/v4/timestamp/create",
-        data=body,
-        headers={
-            "Content-Type": "application/json",
-            "x-api-key": ORIGINSTAMP_API_KEY,
-        },
+        OTS_CALENDAR_URL,
+        data=hash_bytes,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
         method="POST",
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read().decode())
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            ots_proof = resp.read()
+            # Save the .ots proof file
+            OTS_DIR.mkdir(exist_ok=True)
+            proof_path = OTS_DIR / f"{hash_value}.ots"
+            with open(proof_path, "wb") as f:
+                f.write(ots_proof)
+            print(f"  [BLOCKCHAIN] OpenTimestamps proof saved: {proof_path.name} ({len(ots_proof)} bytes)")
+            return ots_proof
     except Exception as e:
-        print(f"  [BLOCKCHAIN] OriginStamp error: {e}")
+        print(f"  [BLOCKCHAIN] OpenTimestamps error: {e}")
         return None
 
 
-def save_blockchain_stamp(capture_id, hash_type, hash_value, response):
+def save_blockchain_stamp(capture_id, hash_type, hash_value, ots_proof):
     """Save a blockchain timestamp record."""
     conn = sqlite3.connect(DB_FILE)
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     conn.execute("""
         INSERT INTO blockchain_stamps (
             stamped_at, capture_id, hash_type, hash_value, service, submitted, response
-        ) VALUES (?, ?, ?, ?, 'originstamp', ?, ?)
+        ) VALUES (?, ?, ?, ?, 'opentimestamps', ?, ?)
     """, (
         now,
         capture_id,
         hash_type,
         hash_value,
-        1 if response else 0,
-        json.dumps(response) if response else None,
+        1 if ots_proof else 0,
+        f"{len(ots_proof)} bytes" if ots_proof else None,
     ))
     conn.commit()
     conn.close()
@@ -561,7 +582,7 @@ def init_db():
             capture_id  INTEGER,
             hash_type   TEXT NOT NULL,
             hash_value  TEXT NOT NULL,
-            service     TEXT NOT NULL DEFAULT 'originstamp',
+            service     TEXT NOT NULL DEFAULT 'opentimestamps',
             submitted   INTEGER NOT NULL DEFAULT 0,
             response    TEXT
         )
@@ -630,6 +651,32 @@ def get_capture(capture_id):
     ).fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+def get_blockchain_stamps_for_captures(capture_ids):
+    """Return set of capture IDs that have at least one submitted blockchain stamp."""
+    if not capture_ids:
+        return set()
+    conn = sqlite3.connect(DB_FILE)
+    placeholders = ",".join("?" * len(capture_ids))
+    rows = conn.execute(
+        f"SELECT DISTINCT capture_id FROM blockchain_stamps WHERE submitted = 1 AND capture_id IN ({placeholders})",
+        capture_ids,
+    ).fetchall()
+    conn.close()
+    return {r[0] for r in rows}
+
+
+def get_blockchain_stamps_for_capture(capture_id):
+    """Return list of blockchain stamps for a specific capture."""
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT * FROM blockchain_stamps WHERE capture_id = ? ORDER BY stamped_at",
+        (capture_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def get_stats():
@@ -801,23 +848,51 @@ def capture_endpoint(endpoint: dict) -> dict:
     return data
 
 
+def _fetch_influencer_ulids():
+    """Fetch post ULIDs from the public influencers endpoint for use in /posts/map."""
+    try:
+        req = urllib.request.Request(
+            "https://api.parler.com/public/v4/posts/influencers",
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0 (Evidence Monitor)",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = json.loads(resp.read().decode())
+            # Extract post ULIDs from the response (top-level list or nested under "data")
+            posts = body if isinstance(body, list) else body.get("data", body.get("posts", []))
+            if isinstance(posts, list):
+                ulids = [p.get("ulid") or p.get("postId") or p.get("id") for p in posts[:10] if isinstance(p, dict)]
+                return [u for u in ulids if u]
+    except Exception:
+        pass
+    return []
+
+
 def run_all_captures():
+    # Pre-fetch influencer ULIDs so Posts Map gets real data
+    influencer_ulids = _fetch_influencer_ulids()
+
     results = []
     for endpoint in ENDPOINTS:
+        # Inject real ULIDs into the Posts Map endpoint
+        if "/posts/map" in endpoint.get("url", "") and influencer_ulids:
+            endpoint = dict(endpoint)  # shallow copy to avoid mutating original
+            endpoint["body"] = json.dumps({"ulids": influencer_ulids})
+
         data = capture_endpoint(endpoint)
         if data is not None:
             capture_id = save_capture(data)
 
-            # --- Blockchain timestamping ---
-            if ORIGINSTAMP_API_KEY and data.get("sha256"):
-                comment = f"Parler API capture: {data['label']} at {data['captured_at']}"
-                resp = submit_to_originstamp(data["sha256"], comment)
-                save_blockchain_stamp(capture_id, "response", data["sha256"], resp)
+            # --- Blockchain timestamping (OpenTimestamps — free, no API key) ---
+            if data.get("sha256"):
+                proof = submit_to_opentimestamps(data["sha256"])
+                save_blockchain_stamp(capture_id, "response", data["sha256"], proof)
 
                 if data.get("schema_hash"):
-                    comment_s = f"Schema hash: {data['label']} at {data['captured_at']}"
-                    resp_s = submit_to_originstamp(data["schema_hash"], comment_s)
-                    save_blockchain_stamp(capture_id, "schema", data["schema_hash"], resp_s)
+                    proof_s = submit_to_opentimestamps(data["schema_hash"])
+                    save_blockchain_stamp(capture_id, "schema", data["schema_hash"], proof_s)
 
             results.append(data)
     return results
@@ -826,40 +901,49 @@ def run_all_captures():
 # --- Background Scheduler ---
 
 
-PT = datetime.timezone(datetime.timedelta(hours=-8))  # Pacific Time (PST)
-CAPTURE_TIMES = [(9, 0), (18, 0)]  # 9:00 AM PT, 6:00 PM PT
+CT = datetime.timezone(datetime.timedelta(hours=-6))  # Central Time (CST)
+CAPTURE_START_HOUR = 9   # 9:00 AM CT
+CAPTURE_END_HOUR = 18    # 6:00 PM CT
+CAPTURE_INTERVAL_MIN = 30
 
 
 def _next_capture_time():
-    """Calculate seconds until the next scheduled capture (9 AM PT or 6 PM PT)."""
-    now_pt = datetime.datetime.now(PT)
-    today = now_pt.date()
+    """Calculate seconds until the next 30-minute capture slot between 9 AM and 6 PM CT."""
+    now_ct = datetime.datetime.now(CT)
+    today = now_ct.date()
 
+    # Generate all 30-minute slots from 9:00 to 18:00 CT today
     candidates = []
-    for hour, minute in CAPTURE_TIMES:
-        t = datetime.datetime(today.year, today.month, today.day, hour, minute, tzinfo=PT)
-        if t > now_pt:
+    hour = CAPTURE_START_HOUR
+    minute = 0
+    while hour < CAPTURE_END_HOUR or (hour == CAPTURE_END_HOUR and minute == 0):
+        t = datetime.datetime(today.year, today.month, today.day, hour, minute, tzinfo=CT)
+        if t > now_ct:
             candidates.append(t)
+        minute += CAPTURE_INTERVAL_MIN
+        if minute >= 60:
+            minute = 0
+            hour += 1
+
     # If no more captures today, use tomorrow's first slot
     if not candidates:
         tomorrow = today + datetime.timedelta(days=1)
-        hour, minute = CAPTURE_TIMES[0]
         candidates.append(
-            datetime.datetime(tomorrow.year, tomorrow.month, tomorrow.day, hour, minute, tzinfo=PT)
+            datetime.datetime(tomorrow.year, tomorrow.month, tomorrow.day, CAPTURE_START_HOUR, 0, tzinfo=CT)
         )
 
     next_time = min(candidates)
-    wait_seconds = (next_time - now_pt).total_seconds()
+    wait_seconds = (next_time - now_ct).total_seconds()
     return next_time, wait_seconds
 
 
 def scheduler():
-    """Run captures at 9:00 AM PT and 6:00 PM PT daily."""
+    """Run captures every 30 minutes between 9:00 AM and 6:00 PM CT daily."""
     while True:
         next_time, wait_seconds = _next_capture_time()
         next_utc = next_time.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        next_pt = next_time.strftime("%Y-%m-%d %I:%M %p PT")
-        print(f"  Next capture: {next_pt} ({next_utc}) — sleeping {wait_seconds/3600:.1f}h")
+        next_ct = next_time.strftime("%Y-%m-%d %I:%M %p CT")
+        print(f"  Next capture: {next_ct} ({next_utc}) — sleeping {wait_seconds/60:.0f}m")
         time.sleep(wait_seconds)
 
         print(
@@ -941,7 +1025,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <form method="POST" action="/refresh-token" style="margin-bottom:20px; display:inline; margin-left:8px;">
   <button class="btn btn-sm" type="submit" style="background:#333;">Reload Credentials</button>
 </form>
-<span style="color:#555;font-size:12px;margin-left:12px;">Auto-runs at 9:00 AM PT &amp; 6:00 PM PT daily</span>
+<span style="color:#555;font-size:12px;margin-left:12px;">Auto-runs every 30 min, 9 AM &ndash; 6 PM CT</span>
 
 <div class="tabs" style="margin-top:20px;">
   <a class="tab {tab_all}" href="/">All</a>
@@ -960,6 +1044,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <th>Size</th>
   <th>CC Score</th>
   <th>SHA-256</th>
+  <th>BTC</th>
   <th>Detail</th>
 </tr>
 {rows}
@@ -977,6 +1062,7 @@ ROW_TEMPLATE = """<tr>
   <td>{size}</td>
   <td class="{cc_score_class}">{cc_score}</td>
   <td class="hash">{sha256}</td>
+  <td>{btc_stamp}</td>
   <td><a href="/detail/{id}">View</a></td>
 </tr>"""
 
@@ -1027,6 +1113,8 @@ DETAIL_TEMPLATE = """<!DOCTYPE html>
 </div>
 
 {schema_section}
+
+{blockchain_section}
 
 <div class="section">Request Headers</div>
 <pre>{request_headers}</pre>
@@ -1087,6 +1175,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         stats = get_stats()
         captures = get_captures(200, category=cat_filter)
+        stamped_ids = get_blockchain_stamps_for_captures([c["id"] for c in captures])
 
         rows = []
         for c in captures:
@@ -1122,6 +1211,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     cc_score=cc_score_display,
                     cc_score_class=cc_score_class,
                     sha256=c["sha256"][:16] + "..." if c["sha256"] else "—",
+                    btc_stamp='<span style="color:#f7931a;">&#x20bf;</span>' if c["id"] in stamped_ids else "—",
                 )
             )
 
@@ -1225,6 +1315,35 @@ class Handler(http.server.BaseHTTPRequestHandler):
   </table>
 </div>"""
 
+        # Build blockchain stamps section
+        stamps = get_blockchain_stamps_for_capture(c["id"])
+        if stamps:
+            stamp_rows = ""
+            for s in stamps:
+                status = '<span style="color:#f7931a;">Submitted</span>' if s["submitted"] else '<span style="color:#888;">Pending</span>'
+                stamp_rows += f"""
+    <tr><td style="color:#555;padding:4px 12px 4px 0;">{html_mod.escape(s['hash_type'].title())}</td>
+        <td class="hash" style="font-size:11px;">{html_mod.escape(s['hash_value'])}</td>
+        <td style="padding:4px 12px;">{status}</td>
+        <td style="color:#888;font-size:11px;">{html_mod.escape(s['stamped_at'])}</td></tr>"""
+            blockchain_section = f"""
+<div style="background:#1a1a0a;padding:16px;border-radius:4px;margin:16px 0;border-left:3px solid #f7931a;">
+  <h3 style="color:#f7931a;margin:0 0 12px 0;font-size:14px;">&#x20bf; Bitcoin Blockchain Timestamps (OpenTimestamps)</h3>
+  <table style="font-size:13px;">
+    <tr><th style="color:#555;text-align:left;padding:4px 12px 4px 0;">Type</th>
+        <th style="color:#555;text-align:left;padding:4px 12px 4px 0;">Hash</th>
+        <th style="color:#555;text-align:left;padding:4px 12px;">Status</th>
+        <th style="color:#555;text-align:left;padding:4px 12px;">Timestamp</th></tr>
+    {stamp_rows}
+  </table>
+  <p style="color:#555;font-size:11px;margin:8px 0 0 0;">
+    Verify: Upload the .ots proof file at <a href="https://opentimestamps.org" target="_blank">opentimestamps.org</a>
+    or <a href="https://dgi.io/ots" target="_blank">dgi.io/ots</a>
+  </p>
+</div>"""
+        else:
+            blockchain_section = ""
+
         cat = c.get("category", "public")
         html = DETAIL_TEMPLATE.format(
             id=c["id"],
@@ -1240,6 +1359,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             sha256=c["sha256"] or "—",
             error_row=error_row,
             schema_section=schema_section,
+            blockchain_section=blockchain_section,
             request_headers=pretty(c["request_headers"]),
             request_body=pretty(c["request_body"]),
             response_headers=pretty(c["response_headers"]),
@@ -1251,6 +1371,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 # --- Main ---
 
 if __name__ == "__main__":
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     init_db()
     load_credentials()
 
@@ -1266,28 +1387,32 @@ if __name__ == "__main__":
     print(f"  Web UI   : http://localhost:{PORT}")
     print(f"  Endpoints: {public_count} public + {auth_count} authenticated")
     print(f"  OAuth    : {'Active' if has_auth else 'No credentials (auth endpoints skipped)'}")
-    print(f"  Blockchain: {'OriginStamp active' if ORIGINSTAMP_API_KEY else 'No API key (set ORIGINSTAMP_API_KEY)'}")
-    print(f"  Schedule : 9:00 AM PT + 6:00 PM PT daily")
+    print(f"  Blockchain: OpenTimestamps (Bitcoin) — no API key needed")
+    print(f"  Schedule : Every 30 min, 9:00 AM – 6:00 PM CT")
     print("=" * 60)
 
-    # Run initial capture immediately
-    print("\nRunning initial capture...")
-    results = run_all_captures()
-    ok = sum(1 for r in results if r.get("http_status") and r["http_status"] < 400)
-    err = sum(1 for r in results if r.get("error"))
-    print(f"  Captured {len(results)} endpoints ({ok} ok, {err} errors)")
-    print(f"\nOpen http://localhost:{PORT} in your browser.")
+    # Run initial capture in background so HTTP server starts immediately
+    def _initial_capture():
+        print("\nRunning initial capture...")
+        results = run_all_captures()
+        ok = sum(1 for r in results if r.get("http_status") and r["http_status"] < 400)
+        err = sum(1 for r in results if r.get("error"))
+        print(f"  Captured {len(results)} endpoints ({ok} ok, {err} errors)")
+
+    threading.Thread(target=_initial_capture, daemon=True).start()
 
     # Start background scheduler (9 AM PT + 6 PM PT)
     t = threading.Thread(target=scheduler, daemon=True)
     t.start()
+
+    print(f"\nListening on http://0.0.0.0:{PORT}")
 
     # Threaded server so captures/refresh don't block the UI
     class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
         allow_reuse_address = True
         daemon_threads = True
 
-    with ThreadedTCPServer(("", PORT), Handler) as httpd:
+    with ThreadedTCPServer(("0.0.0.0", PORT), Handler) as httpd:
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:

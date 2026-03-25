@@ -1,0 +1,8 @@
+credentials.json
+evidence.db
+ots_proofs/
+__pycache__/
+*.pyc
+*.zip
+*.pdf
+.claude/
