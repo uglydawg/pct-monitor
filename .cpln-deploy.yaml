@@ -1,0 +1,12 @@
+cpln:
+  gvc: development
+  org: cpln-git-deploy
+service: pct-monitor
+version: 1
+workloads:
+  - healthPath: /healthz
+    name: web
+    port: 3000
+    public: true
+    type: web
+    workload: pct-monitor
