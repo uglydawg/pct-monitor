@@ -1,6 +1,7 @@
 cpln:
   gvc: development
   org: cpln-git-deploy
+service: pct-monitor
 version: 1
 workloads:
   - dockerfile: Dockerfile
