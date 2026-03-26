@@ -1,0 +1,11 @@
+cpln:
+  gvc: development
+  org: cpln-git-deploy
+version: 1
+workloads:
+  - healthPath: /
+    name: web
+    port: 8080
+    public: true
+    type: web
+    workload: pct-monitor
