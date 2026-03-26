@@ -4,8 +4,7 @@ cpln:
 service: pct-monitor
 version: 1
 workloads:
-  - dockerfile: Dockerfile
-    healthPath: /healthz
+  - healthPath: /healthz
     name: web
     port: 3000
     public: true
